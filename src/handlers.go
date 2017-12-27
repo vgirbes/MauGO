@@ -10,7 +10,7 @@ import (
 	//"strconv"
 	"log"
 	"time"
-	//"database/sql"
+	"database/sql"
 	_ "github.com/go-sql-driver/mysql"
 	
 	mux "github.com/julienschmidt/httprouter"
@@ -63,27 +63,31 @@ func MauCreate(w http.ResponseWriter, r *http.Request, _ mux.Params) {
 	}
 
 	start:= time.Now()
-	db, err := sql.Open("mysql", "test:test@/test")
+	db, err := sql.Open("mysql", "test:test@tcp(golang_db:3306)/test")
 
 	if err != nil {
 	    panic(err.Error())
 	}
 
 	// Prepare statement for inserting data
-	stmtIns, err := db.Prepare("INSERT INTO maus (InstanceID, AppID, UserID, CreationDate) VALUES( ?, ?, ?, ?, ? )") // ? = placeholder
+	stmtIns, err := db.Prepare("REPLACE INTO maus (InstanceID, mau, AppID, UserID, CreationDate) VALUES( ?, (SELECT COUNT(*) + 1 AS mau FROM maus WHERE UserID = 3), ?, ?, ? )") // ? = placeholder
 	if err != nil {
-		panic(err.Error()) // proper error handling instead of panic in your app
+		panic(err.Error())
 	}
 
 	defer stmtIns.Close()
 
-	// Prepare statement for inserting data
-	stmtOut, err := db.Prepare("INSERT INTO maus (InstanceID, AppID, UserID, CreationDate) VALUES( ?, ?, ?, ?, ? )") // ? = placeholder
+	_, err = stmtIns.Exec(request.InstanceID, request.UserID, request.AppID, request.UserID, start.Unix()) // Insert tuples (i, i^2)
 	if err != nil {
 		panic(err.Error()) // proper error handling instead of panic in your app
 	}
+	// Prepare statement for inserting data
+	/*stmtOut, err := db.Prepare("INSERT INTO maus (InstanceID, AppID, UserID, CreationDate) VALUES( ?, ?, ?, ?, ? )") // ? = placeholder
+	if err != nil {
+		panic(err.Error())
+	}
 
-	defer stmtOut.Close()
+	defer stmtOut.Close()*/
 
 	defer db.Close()
 	
