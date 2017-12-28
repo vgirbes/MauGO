@@ -25,6 +25,6 @@ var routes = Routes{
 		"TodoCreate",
 		"POST",
 		"/me",
-		MauCreate,
+		RegisterMau,
 	},
 }

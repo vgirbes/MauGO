@@ -16,16 +16,34 @@ import (
 	mux "github.com/julienschmidt/httprouter"
 )
 
+func checkErr(err error) {
+   if err != nil {
+	   panic(err)
+   }
+}
+
+func sendResponse(w http.ResponseWriter, mau int) {
+	var response Mau
+	now:= time.Now()
+	response.Mau = mau
+	response.Timestamp = now.Unix()
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		panic(err)
+	}
+}
+
 func Logger(r *http.Request) {
 	
-	start:= time.Now()
+	now:= time.Now()
 	
 	log.Printf(
 		"%s\t%s\t%s\t%s",
 		r.Method,
 		r.RequestURI,
 		//name,
-		time.Since(start),
+		time.Since(now),
 	)
 }
 
@@ -38,17 +56,12 @@ func Index(w http.ResponseWriter, r *http.Request, _ mux.Params) {
 	//fmt.Fprintf(w, "Hello, %s\n", p.ByName("anything"))
 }
 
-func MauCreate(w http.ResponseWriter, r *http.Request, _ mux.Params) {
-	
-	Logger(r)
+func RegisterMau(w http.ResponseWriter, r *http.Request, _ mux.Params) {
 
 	var request Request
-	var response Mau
 	body, err := ioutil.ReadAll(io.LimitReader(r.Body, 1048576))
 
-	if err != nil {
-		panic(err)
-	}
+	checkErr(err)
 	if err := r.Body.Close(); err != nil {
 		panic(err)
 	}
@@ -62,50 +75,36 @@ func MauCreate(w http.ResponseWriter, r *http.Request, _ mux.Params) {
 		}
 	}
 
-	start:= time.Now()
 	db, err := sql.Open("mysql", "test:test@tcp(golang_db:3306)/test")
+	checkErr(err)
 
-	if err != nil {
-	    panic(err.Error())
+	// Prepare statement for selecting data
+	var mau int
+	err = db.QueryRow("SELECT sequence FROM active_users WHERE instance_id LIKE ?", request.InstanceID).Scan(&mau)
+	if err == nil {
+		sendResponse(w, mau)
+	} else {
+		tx, err := db.Begin()
+		var row Request
+		var newmau int
+		err = tx.QueryRow("SELECT sequence, user_id, application_id, instance_id FROM active_users WHERE user_id = ? ORDER BY sequence DESC FOR UPDATE", request.UserID).Scan(&newmau, &row.UserID, &row.AppID, &row.InstanceID)
+		if err != nil {
+			newmau = 0
+		}
+		newmau += 1
+		done := make(chan bool)
+		insert := make(chan bool)
+		go func(done chan bool) {
+			sendResponse(w, newmau)
+			done <- true
+		}(done)
+		go func(insert chan bool) {
+			tx.Query("INSERT INTO active_users (instance_id, sequence, user_id, application_id) VALUES(?, ?, ?, ?)", request.InstanceID, newmau, request.UserID, request.AppID)
+			tx.Commit()
+			insert <- true
+		}(insert)
+		<-done
+		<-insert
 	}
-
-	// Prepare statement for inserting data
-	stmtIns, err := db.Prepare("REPLACE INTO maus (InstanceID, mau, AppID, UserID, CreationDate) VALUES( ?, (SELECT COUNT(*) + 1 AS mau FROM maus WHERE UserID = 3), ?, ?, ? )") // ? = placeholder
-	if err != nil {
-		panic(err.Error())
-	}
-
-	defer stmtIns.Close()
-
-	_, err = stmtIns.Exec(request.InstanceID, request.UserID, request.AppID, request.UserID, start.Unix()) // Insert tuples (i, i^2)
-	if err != nil {
-		panic(err.Error()) // proper error handling instead of panic in your app
-	}
-	// Prepare statement for inserting data
-	/*stmtOut, err := db.Prepare("INSERT INTO maus (InstanceID, AppID, UserID, CreationDate) VALUES( ?, ?, ?, ?, ? )") // ? = placeholder
-	if err != nil {
-		panic(err.Error())
-	}
-
-	defer stmtOut.Close()*/
-
 	defer db.Close()
-	
-	log.Printf(
-		"%s\t%s\t%s\t%s",
-		r.Method,
-		r.RequestURI,
-		//name,
-		start.Unix(),
-		request.AppID,
-	)
-
-	//t := RepoCreateTodo(todo)
-	response.Mau = 23
-	response.Timestamp = start.Unix()
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		panic(err)
-	}
 }
