@@ -2,12 +2,10 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
-//	"html"
 	"io"
+	"fmt"
 	"io/ioutil"
-	//"strconv"
 	"log"
 	"time"
 	"database/sql"
@@ -18,7 +16,7 @@ import (
 
 func checkErr(err error) {
    if err != nil {
-	   panic(err)
+	   //panic(err)
    }
 }
 
@@ -30,7 +28,7 @@ func sendResponse(w http.ResponseWriter, mau int) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		panic(err)
+		//panic(err)
 	}
 }
 
@@ -47,15 +45,6 @@ func Logger(r *http.Request) {
 	)
 }
 
-func Index(w http.ResponseWriter, r *http.Request, _ mux.Params) {
-	
-	Logger(r)
-
-	fmt.Fprintf(w, "<h1>Hello, welcome to my blog2</h1>")
-	//fmt.Fprintf(w, "Hello, %q", html.EscapeString(r.URL.Path))
-	//fmt.Fprintf(w, "Hello, %s\n", p.ByName("anything"))
-}
-
 func RegisterMau(w http.ResponseWriter, r *http.Request, _ mux.Params) {
 
 	var request Request
@@ -66,7 +55,6 @@ func RegisterMau(w http.ResponseWriter, r *http.Request, _ mux.Params) {
 		panic(err)
 	}
 
-	// Save JSON to Todo struct
 	if err := json.Unmarshal(body, &request); err != nil {
 		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 		w.WriteHeader(422) // unprocessable entity
@@ -75,19 +63,23 @@ func RegisterMau(w http.ResponseWriter, r *http.Request, _ mux.Params) {
 		}
 	}
 
-	db, err := sql.Open("mysql", "test:test@tcp(golang_db:3306)/test")
+	db, err := sql.Open("mysql", "test:test@tcp(go_db:3306)/test")
 	checkErr(err)
 
-	// Prepare statement for selecting data
 	var mau int
-	err = db.QueryRow("SELECT sequence FROM active_users WHERE instance_id LIKE ?", request.InstanceID).Scan(&mau)
-	if err == nil {
+	err = db.QueryRow("SELECT sequence FROM active_users WHERE instance_id LIKE '?'", request.InstanceID).Scan(&mau)
+	fmt.Printf("%d", mau)
+	if mau == 0 {
+		//fmt.Printf("Old mau")
 		sendResponse(w, mau)
+		defer db.Close()
 	} else {
+		//fmt.Printf("New mau")
 		tx, err := db.Begin()
 		var row Request
 		var newmau int
 		err = tx.QueryRow("SELECT sequence, user_id, application_id, instance_id FROM active_users WHERE user_id = ? ORDER BY sequence DESC FOR UPDATE", request.UserID).Scan(&newmau, &row.UserID, &row.AppID, &row.InstanceID)
+
 		if err != nil {
 			newmau = 0
 		}
@@ -100,11 +92,11 @@ func RegisterMau(w http.ResponseWriter, r *http.Request, _ mux.Params) {
 		}(done)
 		go func(insert chan bool) {
 			tx.Query("INSERT INTO active_users (instance_id, sequence, user_id, application_id) VALUES(?, ?, ?, ?)", request.InstanceID, newmau, request.UserID, request.AppID)
+			//fmt.Printf("INSERT INTO active_users (instance_id, sequence, user_id, application_id) VALUES(%s, %d, %d, %d)", request.InstanceID, newmau, request.UserID, request.AppID)
 			tx.Commit()
+			defer db.Close()
 			insert <- true
 		}(insert)
 		<-done
-		<-insert
 	}
-	defer db.Close()
 }

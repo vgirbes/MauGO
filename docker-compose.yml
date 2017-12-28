@@ -4,7 +4,7 @@ services:
 
   app:
     build: .
-    container_name: golang_app
+    container_name: go_app
     volumes:
       - ./src:/go/src/app
       - sock-db:/run/mysqld
@@ -17,7 +17,7 @@ services:
 
   db:
     image: mysql:5.6
-    container_name: golang_db
+    container_name: go_db
     volumes:
       - db:/var/lib/mysql
       - sock-db:/run/mysqld
