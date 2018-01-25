@@ -13,11 +13,10 @@ services:
     logging:
       options:
         max-size: 100m
-    restart: always
 
   db:
-    image: mysql:5.6
-    container_name: go_db
+    image: mysql:5.7
+    container_name: golang_db
     volumes:
       - db:/var/lib/mysql
       - sock-db:/run/mysqld
@@ -38,7 +37,6 @@ services:
     logging:
       options:
         max-size: 100m
-    restart: always
 
 volumes:
   db:

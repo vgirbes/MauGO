@@ -1,7 +1,6 @@
 package main
 
 import (
-//	"net/http"
 	 mux "github.com/julienschmidt/httprouter"
 )
 

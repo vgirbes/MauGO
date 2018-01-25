@@ -4,11 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"io"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"time"
-	//"database/sql"
+	"strconv"
 	_ "github.com/go-sql-driver/mysql"
 	
 	mux "github.com/julienschmidt/httprouter"
@@ -16,33 +15,22 @@ import (
 
 func checkErr(err error) {
    if err != nil {
-	   //panic(err)
+	   panic(err)
    }
 }
 
 func sendResponse(w http.ResponseWriter, mau int) {
 	var response Mau
 	now:= time.Now()
+
 	response.Mau = mau
 	response.Timestamp = now.Unix()
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		//panic(err)
-	}
-}
 
-func Logger(r *http.Request) {
-	
-	now:= time.Now()
-	
-	log.Printf(
-		"%s\t%s\t%s\t%s",
-		r.Method,
-		r.RequestURI,
-		//name,
-		time.Since(now),
-	)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		panic(err)
+	}
 }
 
 func RegisterMau(w http.ResponseWriter, r *http.Request, _ mux.Params) {
@@ -56,50 +44,55 @@ func RegisterMau(w http.ResponseWriter, r *http.Request, _ mux.Params) {
 
 	if err := json.Unmarshal(body, &request); err != nil {
 		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-		w.WriteHeader(422) // unprocessable entity
+		w.WriteHeader(422) 
 		if err := json.NewEncoder(w).Encode(err); err != nil {
 			panic(err)
 		}
 	}
 
-	//db, err := sql.Open("mysql", "test:test@tcp(go_db:3306)/test")
-	//checkErr(err)
 
 	var mau int
-	err = db.QueryRow("SELECT sequence FROM active_users WHERE instance_id LIKE ?", request.InstanceID).Scan(&mau)
 
-	if mau != 0 {
-		//fmt.Printf("Old mau", mau)
-		sendResponse(w, mau)
-		//defer db.Close()
-	} else {
-		//fmt.Printf("SELECT sequence FROM active_users WHERE instance_id LIKE %s", request.InstanceID)
-		fmt.Printf("New mau %d", mau)
-		tx, err := db.Begin()
-		var row Request
-		var newmau int
-		err = tx.QueryRow("SELECT sequence, user_id, application_id, instance_id FROM active_users WHERE user_id = ? ORDER BY sequence DESC FOR UPDATE", request.UserID).Scan(&newmau, &row.UserID, &row.AppID, &row.InstanceID)
+    if entry, errCache := cache.Get(request.Instance); errCache != nil {
+    	err = db.QueryRow("SELECT sequence FROM activeUsers WHERE instance_id LIKE ?", request.Instance).Scan(&mau)
 
-		if err != nil {
-			newmau = 0
+		if mau != 0 {
+			var mauCache = strconv.Itoa(mau)
+			cache.Set(request.Instance, []byte(mauCache))
+			sendResponse(w, mau)
+		} else {
+			var row Request
+			var newmau int
+
+			tx, err := db.Begin()
+
+			err = tx.QueryRow("SELECT sequence, user_id, application_id, instance_id FROM activeUsers WHERE user_id = ? ORDER BY sequence DESC FOR UPDATE", request.IdUser).Scan(&newmau, &row.IdUser, &row.IdApp, &row.Instance)
+
+			if err != nil {
+				newmau = 0
+			}
+
+			newmau += 1
+			done := make(chan bool)
+			insert := make(chan bool)
+
+			go func(done chan bool) {
+				var mauCache = strconv.Itoa(newmau)
+				cache.Set(request.Instance, []byte(mauCache))
+				sendResponse(w, newmau)
+				done <- true
+			}(done)
+
+			go func(insert chan bool) {
+				tx.Exec("INSERT INTO activeUsers (instance_id, sequence, user_id, application_id) VALUES(?, ?, ?, ?)", request.Instance, newmau, request.IdUser, request.IdApp)
+				tx.Commit()
+				insert <- true
+			}(insert)
+
+			<-done
 		}
-		newmau += 1
-		done := make(chan bool)
-		insert := make(chan bool)
-		go func(done chan bool) {
-			sendResponse(w, newmau)
-			done <- true
-		}(done)
-		go func(insert chan bool) {
-			tx.Exec("INSERT INTO active_users (instance_id, sequence, user_id, application_id) VALUES(?, ?, ?, ?)", request.InstanceID, newmau, request.UserID, request.AppID)
-
-			//fmt.Printf("INSERT INTO active_users (instance_id, sequence, user_id, application_id) VALUES('%s', %d, %d, %d)", request.InstanceID, newmau, request.UserID, request.AppID)
-			tx.Commit()
-			//defer db.Close()
-			insert <- true
-		}(insert)
-		<-done
-	}
-
-	//defer db.Close()
+    } else {
+    	aByteToInt, _ := strconv.Atoi(string(entry))
+    	sendResponse(w, aByteToInt)
+    }
 }
