@@ -24,7 +24,7 @@ func main() {
         log.Fatal("PORT environment variable was not set")
 	}
 
-    db, err = sql.Open("mysql", "mau_db:U28vX9uXJDnvmY6W@tcp(v1db.mobincube.com:3306)/mau_db")
+    db, err = sql.Open("mysql", "mau_db:password@tcp(server:3306)/mau_db")
     db.SetMaxOpenConns(100)
 
     if err != nil {
